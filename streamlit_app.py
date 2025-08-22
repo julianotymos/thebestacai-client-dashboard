@@ -3,7 +3,7 @@ import pandas as pd
 from read_customer_frequency_data import read_customer_frequency_data, read_total_customers_count
 from read_customer_summary import read_customer_summary
 from read_customer_transactions_by_id import read_customer_transactions_by_id
-
+from read_process_last_run import read_process_last_run
 st.set_page_config(layout="wide")
 
 # ------------------------
@@ -17,10 +17,18 @@ with st.sidebar:
     f_name = st.text_input("Nome do Cliente")
     f_phone = st.text_input("Telefone")
     f_doc = st.text_input("CPF")
-
+    
+    st.sidebar.markdown("---")
+    st.sidebar.header("🔄 Status de Processamento")
+    last_run_df = read_process_last_run(["BIG_QUERY_PROCESS"])
+    if not last_run_df.empty:
+        for index, row in last_run_df.iterrows():
+            st.sidebar.info(f"**{row['name']}**\nÚltima atualização: {row['last_run_date'].strftime('%d/%m/%Y %H:%M:%S')}")
 # ------------------------
 # Resumo de clientes por canal
 # ------------------------
+st.title("The Best Clientes - Dashboard ")
+
 st.subheader("Clientes por Canal")
 df_summary = read_customer_summary()
 if not df_summary.empty:
