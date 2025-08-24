@@ -73,7 +73,7 @@ def read_customer_transactions_by_id(
 SELECT
   ID,
   CANAL,
-    FORMAT_TIMESTAMP('%d/%m/%Y %H:%M', DATA_TRANSACAO) AS DATA_VENDA ,
+    FORMAT_TIMESTAMP('%d/%m/%Y %H:%M', 'America/Sao_Paulo') AS DATA_VENDA ,
 
   TOTAL
 FROM ALL_TRANSACTIONS
