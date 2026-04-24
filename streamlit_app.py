@@ -105,12 +105,23 @@ with tab3:
             df_abc = df_adv.sort_values("MONETARY", ascending=False).reset_index()
             df_abc['cum_perc'] = 100 * df_abc['MONETARY'].cumsum() / df_abc['MONETARY'].sum()
             st.area_chart(df_abc['cum_perc'], use_container_width=True)
+            
+            # Restaurando a descrição 80/20
+            vip_count = len(df_abc[df_abc['cum_perc'] <= 80])
+            total_count = len(df_abc)
+            st.info(f"**Insight:** {vip_count} clientes ({100*vip_count/total_count:.1f}%) representam 80% do seu faturamento.")
+
         with c2:
             st.markdown("### 🕒 Ciclo de Recompra")
             df_cycle = df_adv[df_adv['AVG_CYCLE'] > 0].copy()
             if not df_cycle.empty:
                 df_cycle['Faixa_Label'] = (df_cycle['AVG_CYCLE'] // 7 * 7).astype(int).apply(lambda x: f"{x}-{x+7} dias")
                 st.bar_chart(df_cycle['Faixa_Label'].value_counts().sort_index().head(10))
+                
+                # Restaurando a média de dias
+                st.info(f"**Média Geral:** Seus clientes fiéis voltam a cada **{df_cycle['AVG_CYCLE'].mean():.0f} dias**.")
+            else:
+                st.info("Dados insuficientes para ciclo de recompra.")
         
         st.markdown("---")
         st.markdown("### 🧬 Matriz RFM")
