@@ -1,0 +1,62 @@
+import streamlit as st
+import pandas as pd
+from get_bigquery_client import get_bigquery_client
+
+@st.cache_data(ttl=3600, show_spinner="Calculando métricas avançadas...")
+def read_advanced_analytics_data(sales_channel=None):
+    client = get_bigquery_client()
+
+    if sales_channel == "iFood":
+        channel_filter = "SELECT CU.ID, CAST(OT.CREATED_AT AS DATE) AS DATA_TRANSACAO, OT.TOTAL_BAG_DETAIL AS TOTAL FROM `DELIVERY.ORDERS_TABLE` OT INNER JOIN CUSTOMER_UNION CU ON CU.CUSTOMER_ID_ORIGINAL = OT.CUSTOMER_ID"
+    elif sales_channel == "99food":
+        channel_filter = "SELECT CU.ID, CAST(OT.CREATED_AT AS DATE) AS DATA_TRANSACAO, OT.TOTAL_BAG_DETAIL AS TOTAL FROM `DELIVERY.ORDERS_TABLE` OT INNER JOIN CUSTOMER_UNION CU ON CU.C_UID_ORIGINAL = OT.C_UID"
+    elif sales_channel == "Loja":
+        channel_filter = "SELECT CU.ID, CAST(SC.CREATED_AT AS DATE) AS DATA_TRANSACAO, SC.TOTAL AS TOTAL FROM `DELIVERY.SALES_CLUB` SC INNER JOIN CUSTOMER_UNION CU ON CU.DOCUMENT_NUMBER_CTB = SC.CLIENT_CPF"
+    else:
+        channel_filter = """
+        SELECT CU.ID, CAST(OT.CREATED_AT AS DATE) AS DATA_TRANSACAO, OT.TOTAL_BAG_DETAIL AS TOTAL FROM `DELIVERY.ORDERS_TABLE` OT INNER JOIN CUSTOMER_UNION CU ON CU.CUSTOMER_ID_ORIGINAL = OT.CUSTOMER_ID
+        UNION ALL
+        SELECT CU.ID, CAST(OT.CREATED_AT AS DATE) AS DATA_TRANSACAO, OT.TOTAL_BAG_DETAIL AS TOTAL FROM `DELIVERY.ORDERS_TABLE` OT INNER JOIN CUSTOMER_UNION CU ON CU.C_UID_ORIGINAL = OT.C_UID
+        UNION ALL
+        SELECT CU.ID, CAST(SC.CREATED_AT AS DATE) AS DATA_TRANSACAO, SC.TOTAL AS TOTAL FROM `DELIVERY.SALES_CLUB` SC INNER JOIN CUSTOMER_UNION CU ON CU.DOCUMENT_NUMBER_CTB = SC.CLIENT_CPF
+        """
+
+    query = f"""
+    WITH CUSTOMER_UNION AS (
+        SELECT
+          CONCAT(COALESCE(C.ID, ''), COALESCE(C9.C_UID, ''), COALESCE(CTB.DOCUMENT_NUMBER, '')) AS ID,
+          C.ID AS CUSTOMER_ID_ORIGINAL,
+          C9.C_UID AS C_UID_ORIGINAL,
+          CTB.DOCUMENT_NUMBER AS DOCUMENT_NUMBER_CTB
+        FROM `DELIVERY.CUSTOMER` C
+        FULL OUTER JOIN `DELIVERY.CUSTOMER_THE_BEST` CTB ON C.DOCUMENT_NUMBER = CTB.DOCUMENT_NUMBER
+        FULL OUTER JOIN `DELIVERY.CUSTOMER_99_FOOD` C9 ON CTB.PHONE_NUMBER = C9.PHONE_NUMBER
+    ),
+    TRANSACTIONS AS ({channel_filter}),
+    CALCULATE_DIFFS AS (
+        SELECT 
+            ID,
+            TOTAL,
+            DATA_TRANSACAO,
+            DATE_DIFF(DATA_TRANSACAO, LAG(DATA_TRANSACAO) OVER (PARTITION BY ID ORDER BY DATA_TRANSACAO), DAY) as diff
+        FROM TRANSACTIONS
+    ),
+    AGGREGATED AS (
+        SELECT 
+            ID,
+            SUM(TOTAL) as MONETARY,
+            COUNT(1) as FREQUENCY,
+            DATE_DIFF(CURRENT_DATE(), MAX(DATA_TRANSACAO), DAY) as RECENCY,
+            AVG(diff) as AVG_CYCLE
+        FROM CALCULATE_DIFFS
+        GROUP BY ID
+    )
+    SELECT * FROM AGGREGATED
+    """
+    
+    try:
+        df = client.query(query).to_dataframe()
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar dados analíticos: {e}")
+        return pd.DataFrame()
