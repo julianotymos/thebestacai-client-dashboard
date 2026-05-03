@@ -8,6 +8,8 @@ from read_customer_summary import read_customer_summary
 from read_customer_transactions_by_id import read_customer_transactions_by_id
 from read_process_last_run import read_process_last_run
 from read_cohort_data import read_cohort_data
+from read_new_customers_data import read_new_customers_data
+from read_lifecycle_data import read_lifecycle_data
 from log_event import log_whatsapp_event, read_whatsapp_events, read_full_event_history, read_customer_contact_history
 import altair as alt
 
@@ -88,6 +90,115 @@ with tab1:
             if not transactions_df.empty: st.dataframe(transactions_df, use_container_width=True, hide_index=True)
 
 with tab2:
+    df_new = read_new_customers_data(sales_channel=f_sales_channel)
+    if not df_new.empty:
+        st.subheader("Novos Clientes por Mês")
+
+        total_period = int(df_new['NOVOS_CLIENTES'].sum())
+        avg_month = df_new['NOVOS_CLIENTES'].mean()
+        best_month = df_new.loc[df_new['NOVOS_CLIENTES'].idxmax()]
+
+        avg_pct = df_new['PCT_NOVOS'].mean()
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total no Período", f"{total_period:,}")
+        m2.metric("Média Mensal", f"{avg_month:.0f}")
+        m3.metric("Melhor Mês", f"{best_month['MES_LABEL']} ({int(best_month['NOVOS_CLIENTES']):,})")
+        m4.metric("% Médio Novos/Total", f"{avg_pct:.1f}%")
+
+        bar_chart = alt.Chart(df_new).mark_bar(color='#4C78A8').encode(
+            x=alt.X('MES_LABEL:N', sort=None, title='Mês', axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y('NOVOS_CLIENTES:Q', title='Novos Clientes'),
+            tooltip=[
+                alt.Tooltip('MES_LABEL:N', title='Mês'),
+                alt.Tooltip('NOVOS_CLIENTES:Q', title='Novos Clientes', format=','),
+                alt.Tooltip('TOTAL_CLIENTES:Q', title='Total Clientes', format=','),
+                alt.Tooltip('PCT_NOVOS:Q', title='% Novos/Total', format='.1f'),
+            ]
+        )
+
+        pct_novos_line = alt.Chart(df_new).mark_line(
+            color='#F58518', strokeWidth=2, point=alt.OverlayMarkDef(color='#F58518', size=60)
+        ).encode(
+            x=alt.X('MES_LABEL:N', sort=None),
+            y=alt.Y('PCT_NOVOS:Q', title='% Novos/Total'),
+            tooltip=[
+                alt.Tooltip('MES_LABEL:N', title='Mês'),
+                alt.Tooltip('PCT_NOVOS:Q', title='% Novos/Total', format='.1f'),
+            ]
+        )
+
+        chart = alt.layer(
+            bar_chart,
+            pct_novos_line
+        ).resolve_scale(y='independent').properties(height=320)
+
+        st.altair_chart(chart, use_container_width=True)
+        st.caption("Barras azuis = novos clientes (eixo esq.)  |  Linha laranja = % novos sobre total de clientes ativos no mês (eixo dir.)")
+
+        with st.expander("Ver dados completos"):
+            st.dataframe(
+                df_new[['MES_LABEL', 'NOVOS_CLIENTES', 'TOTAL_CLIENTES', 'PCT_NOVOS', 'VARIACAO_PCT']].rename(columns={
+                    'MES_LABEL': 'Mês', 'NOVOS_CLIENTES': 'Novos Clientes',
+                    'TOTAL_CLIENTES': 'Total Ativos', 'PCT_NOVOS': '% Novos/Total', 'VARIACAO_PCT': 'Var% Novos'
+                }).style.format({
+                    'Novos Clientes': '{:,.0f}', 'Total Ativos': '{:,.0f}',
+                    '% Novos/Total': '{:.1f}%', 'Var% Novos': '{:.1f}%'
+                }, na_rep='-'),
+                use_container_width=True, hide_index=True
+            )
+
+    st.markdown("---")
+    st.subheader("Ciclo de Vida do Cliente (Tempo Máximo 3 meses)")
+    df_lc = read_lifecycle_data(sales_channel=f_sales_channel)
+    if not df_lc.empty:
+        LIFECYCLE_COLS = {
+            'NOVOS_CLIENTES':    'Novos do mês',
+            'RETORNOU_MENOS_1M': '< 1 mês',
+            'ENTRE_1_2M':        '1 a 2 meses',
+            'ENTRE_2_3M':        '2 a 3 meses',
+            'SAIU':              'Saiu (3+ meses)',
+        }
+        LIFECYCLE_COLORS = {
+            'Novos do mês':      '#4C78A8',
+            '< 1 mês':           '#54A24B',
+            '1 a 2 meses':       '#F58518',
+            '2 a 3 meses':       '#E45756',
+            'Saiu (3+ meses)':   '#B279A2',
+        }
+
+        df_lc_display = df_lc[['MES_LABEL'] + list(LIFECYCLE_COLS.keys())].copy()
+        df_lc_display = df_lc_display.rename(columns=LIFECYCLE_COLS)
+
+        df_melted = df_lc_display.melt(id_vars='MES_LABEL', var_name='Grupo', value_name='Clientes')
+        df_melted['MES_LABEL'] = pd.Categorical(df_melted['MES_LABEL'], categories=df_lc['MES_LABEL'].tolist(), ordered=True)
+
+        color_scale = alt.Scale(
+            domain=list(LIFECYCLE_COLORS.keys()),
+            range=list(LIFECYCLE_COLORS.values())
+        )
+
+        lc_chart = alt.Chart(df_melted).mark_bar().encode(
+            x=alt.X('Clientes:Q', title='Clientes', stack='zero'),
+            y=alt.Y('MES_LABEL:O', sort=None, title='Mês da análise'),
+            color=alt.Color('Grupo:N', scale=color_scale, legend=alt.Legend(title='Grupo', orient='bottom')),
+            order=alt.Order('Grupo:N', sort='ascending'),
+            tooltip=[
+                alt.Tooltip('MES_LABEL:O', title='Mês'),
+                alt.Tooltip('Grupo:N', title='Grupo'),
+                alt.Tooltip('Clientes:Q', title='Clientes', format=','),
+            ]
+        ).properties(height=380)
+
+        st.altair_chart(lc_chart, use_container_width=True)
+
+        with st.expander("Ver tabela completa"):
+            st.dataframe(
+                df_lc_display.style.format({c: '{:,.0f}' for c in LIFECYCLE_COLS.values()}),
+                use_container_width=True, hide_index=True
+            )
+
+    st.markdown("---")
     st.subheader("Retenção Mensal de Clientes (%)")
     retention, cohort_matrix = read_cohort_data(sales_channel=f_sales_channel)
     if not retention.empty:
