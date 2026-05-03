@@ -54,7 +54,7 @@ def read_lifecycle_data(sales_channel=None):
     ANALYSIS_MONTHS AS (
         SELECT month AS ANALYSIS_MONTH
         FROM UNNEST(GENERATE_DATE_ARRAY(
-            DATE_SUB(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 12 MONTH),
+            DATE '2025-01-01',
             DATE_SUB(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 1 MONTH),
             INTERVAL 1 MONTH
         )) AS month
@@ -71,8 +71,8 @@ def read_lifecycle_data(sales_channel=None):
         LEFT JOIN CUSTOMER_MONTHLY CM
             ON CM.ID = FP.ID
             AND CM.PURCHASE_MONTH <= AM.ANALYSIS_MONTH
-        -- Limita clientes que estrearam até 15 meses atrás para não explodir o cross join
-        WHERE FP.FIRST_MONTH >= DATE_SUB(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 15 MONTH)
+        -- 3 meses antes de Jan/25 para popular corretamente os grupos do primeiro mês
+        WHERE FP.FIRST_MONTH >= DATE '2024-10-01'
           AND FP.FIRST_MONTH <= AM.ANALYSIS_MONTH
         GROUP BY 1, 2, 3
     )
